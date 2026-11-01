@@ -1,9 +1,13 @@
-tasks-bot.space, www.tasks-bot.space {
+www.tasks-bot.space, http://www.tasks-bot.space {
+    redir https://tasks-bot.space{uri} permanent
+}
+
+tasks-bot.space {
     encode gzip zstd
     reverse_proxy frontend:80
 }
 
-http://51.83.187.8, http://tasks-bot.space, http://www.tasks-bot.space, :80 {
+http://51.83.187.8, http://tasks-bot.space, :80 {
     encode gzip zstd
     reverse_proxy frontend:80
 }

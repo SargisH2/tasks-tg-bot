@@ -1,8 +1,10 @@
 """Tests for Telegram Login Widget HMAC verification, JWT auth, and @username mentions."""
 
+import json
 import time
 import uuid
 from typing import Any
+from urllib.parse import urlencode
 
 import pytest
 from httpx import AsyncClient
@@ -13,9 +15,11 @@ from app.models.user import User
 from app.schemas.auth import TelegramAuthPayload
 from app.services.auth_service import (
     compute_telegram_hash,
+    compute_telegram_webapp_hash,
     create_access_token,
     decode_access_token,
     verify_telegram_auth,
+    verify_telegram_webapp_init_data,
 )
 from app.services.mention_service import (
     extract_mentions,
@@ -193,6 +197,36 @@ async def test_auth_endpoints(
         json={**tg_data, "hash": "0" * 64},
     )
     assert bad_resp.status_code == 401
+
+    webapp_user_json = json.dumps(
+        {
+            "id": 999333,
+            "first_name": "MiniApp",
+            "last_name": "User",
+            "username": "MiniApp_Hero",
+        }
+    )
+    webapp_pairs = [
+        ("auth_date", str(now)),
+        ("query_id", "AAHdF6IQAAAAAN0XohDhrOrc"),
+        ("user", webapp_user_json),
+    ]
+    webapp_hash = compute_telegram_webapp_hash(webapp_pairs, settings.telegram_bot_token)
+    init_data_str = urlencode([*webapp_pairs, ("hash", webapp_hash)])
+    assert verify_telegram_webapp_init_data(init_data_str) is not None
+
+    webapp_resp = await async_client.post(
+        "/api/v1/auth/telegram-webapp",
+        json={"init_data": init_data_str},
+    )
+    assert webapp_resp.status_code == 200
+    assert webapp_resp.json()["user"]["username"] == "miniapp_hero"
+
+    bad_webapp_resp = await async_client.post(
+        "/api/v1/auth/telegram-webapp",
+        json={"init_data": "auth_date=100&user=%7B%7D&hash=invalid"},
+    )
+    assert bad_webapp_resp.status_code == 401
 
     dev_resp = await async_client.post(
         "/api/v1/auth/dev",

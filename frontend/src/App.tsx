@@ -10,6 +10,7 @@ import {
   getStoredToken,
   loginWithDev,
   loginWithTelegram,
+  loginWithTelegramWebApp,
   setStoredToken,
   triggerAiGenerateCheckpoints,
   triggerAiImprove,
@@ -34,6 +35,41 @@ import type {
   User,
   WebSocketTaskEvent,
 } from "./types";
+
+function extractUrlTelegramWidgetParams(): TelegramWidgetUser | null {
+  const params = new URLSearchParams(window.location.search);
+  const id = params.get("id");
+  const firstName = params.get("first_name");
+  const authDate = params.get("auth_date");
+  const hash = params.get("hash");
+  if (!id || !firstName || !authDate || !hash) {
+    return null;
+  }
+  const parsedId = Number.parseInt(id, 10);
+  const parsedAuthDate = Number.parseInt(authDate, 10);
+  if (Number.isNaN(parsedId) || Number.isNaN(parsedAuthDate)) {
+    return null;
+  }
+  const widgetUser: TelegramWidgetUser = {
+    id: parsedId,
+    first_name: firstName,
+    auth_date: parsedAuthDate,
+    hash,
+  };
+  const lastName = params.get("last_name");
+  if (lastName) {
+    widgetUser.last_name = lastName;
+  }
+  const username = params.get("username");
+  if (username) {
+    widgetUser.username = username;
+  }
+  const photoUrl = params.get("photo_url");
+  if (photoUrl) {
+    widgetUser.photo_url = photoUrl;
+  }
+  return widgetUser;
+}
 
 export function App() {
   const [token, setToken] = useState<string | null>(() => getStoredToken());
@@ -112,11 +148,59 @@ export function App() {
   useEffect(() => {
     let active = true;
     const initAuth = async () => {
-      if (!token) {
-        setCurrentUser(null);
-        setIsLoading(false);
+      let activeToken = token;
+
+      const urlWidgetUser = extractUrlTelegramWidgetParams();
+      if (urlWidgetUser) {
+        window.history.replaceState({}, "", window.location.pathname);
+        try {
+          const res = await loginWithTelegram(urlWidgetUser);
+          setStoredToken(res.access_token);
+          activeToken = res.access_token;
+          if (active) {
+            setToken(res.access_token);
+            setCurrentUser(res.user);
+          }
+        } catch (err) {
+          if (active) {
+            setErrorBanner(
+              err instanceof Error ? err.message : "Telegram login failed",
+            );
+          }
+        }
+      }
+
+      if (!activeToken) {
+        const webAppInitData = window.Telegram?.WebApp?.initData?.trim();
+        if (webAppInitData) {
+          try {
+            const res = await loginWithTelegramWebApp(webAppInitData);
+            setStoredToken(res.access_token);
+            activeToken = res.access_token;
+            if (active) {
+              setToken(res.access_token);
+              setCurrentUser(res.user);
+            }
+          } catch (err) {
+            if (active) {
+              setErrorBanner(
+                err instanceof Error
+                  ? err.message
+                  : "Telegram Mini App login failed",
+              );
+            }
+          }
+        }
+      }
+
+      if (!activeToken) {
+        if (active) {
+          setCurrentUser(null);
+          setIsLoading(false);
+        }
         return;
       }
+
       try {
         const [me, list, usersList] = await Promise.all([
           fetchCurrentUser(),
@@ -157,6 +241,20 @@ export function App() {
     } catch (err) {
       setErrorBanner(
         err instanceof Error ? err.message : "Telegram login failed",
+      );
+    }
+  };
+
+  const handleTelegramWebAppAuth = async (initData: string) => {
+    setErrorBanner(null);
+    try {
+      const res = await loginWithTelegramWebApp(initData);
+      setStoredToken(res.access_token);
+      setToken(res.access_token);
+      setCurrentUser(res.user);
+    } catch (err) {
+      setErrorBanner(
+        err instanceof Error ? err.message : "Telegram Mini App login failed",
       );
     }
   };
@@ -344,6 +442,7 @@ export function App() {
     return (
       <TelegramLoginView
         onTelegramAuth={handleTelegramAuth}
+        onTelegramWebAppAuth={handleTelegramWebAppAuth}
         onDevAuth={handleDevAuth}
         errorMessage={errorBanner}
       />

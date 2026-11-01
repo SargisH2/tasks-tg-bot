@@ -10,13 +10,65 @@ from app.api.deps import get_current_user
 from app.config import get_settings
 from app.database import get_db
 from app.models.user import User
-from app.schemas.auth import DevAuthPayload, TelegramAuthPayload, TokenResponse
+from app.schemas.auth import (
+    DevAuthPayload,
+    TelegramAuthPayload,
+    TelegramWebAppAuthPayload,
+    TokenResponse,
+)
 from app.schemas.user import UserRead
-from app.services.auth_service import create_access_token, verify_telegram_auth
+from app.services.auth_service import (
+    create_access_token,
+    verify_telegram_auth,
+    verify_telegram_webapp_init_data,
+)
 from app.services.mention_service import fetch_registered_users, normalize_username
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 users_router = APIRouter(prefix="/users", tags=["users"])
+
+
+async def _upsert_telegram_user_and_issue_token(
+    db: AsyncSession,
+    telegram_id: int,
+    first_name: str,
+    last_name: str | None,
+    username: str | None,
+    photo_url: str | None,
+) -> TokenResponse:
+    """Create or update a User record from verified Telegram data and return a JWT response."""
+    normalized_uname = normalize_username(username)
+    stmt = select(User).where(User.telegram_id == telegram_id)
+    result = await db.execute(stmt)
+    user = result.scalar_one_or_none()
+
+    if user is None:
+        user = User(
+            telegram_id=telegram_id,
+            username=normalized_uname,
+            first_name=first_name,
+            last_name=last_name,
+            photo_url=photo_url,
+        )
+        db.add(user)
+    else:
+        user.username = normalized_uname
+        user.first_name = first_name
+        user.last_name = last_name
+        user.photo_url = photo_url
+
+    await db.commit()
+    await db.refresh(user)
+
+    token = create_access_token(
+        user_id=user.id,
+        telegram_id=user.telegram_id,
+        username=user.username,
+    )
+    return TokenResponse(
+        access_token=token,
+        user=UserRead.model_validate(user),
+    )
 
 
 @router.post("/telegram", response_model=TokenResponse)
@@ -31,37 +83,36 @@ async def login_with_telegram(
             detail="Invalid Telegram authentication signature or expired auth_date",
         )
 
-    normalized_uname = normalize_username(payload.username)
-    stmt = select(User).where(User.telegram_id == payload.id)
-    result = await db.execute(stmt)
-    user = result.scalar_one_or_none()
-
-    if user is None:
-        user = User(
-            telegram_id=payload.id,
-            username=normalized_uname,
-            first_name=payload.first_name,
-            last_name=payload.last_name,
-            photo_url=payload.photo_url,
-        )
-        db.add(user)
-    else:
-        user.username = normalized_uname
-        user.first_name = payload.first_name
-        user.last_name = payload.last_name
-        user.photo_url = payload.photo_url
-
-    await db.commit()
-    await db.refresh(user)
-
-    token = create_access_token(
-        user_id=user.id,
-        telegram_id=user.telegram_id,
-        username=user.username,
+    return await _upsert_telegram_user_and_issue_token(
+        db=db,
+        telegram_id=payload.id,
+        first_name=payload.first_name,
+        last_name=payload.last_name,
+        username=payload.username,
+        photo_url=payload.photo_url,
     )
-    return TokenResponse(
-        access_token=token,
-        user=UserRead.model_validate(user),
+
+
+@router.post("/telegram-webapp", response_model=TokenResponse)
+async def login_with_telegram_webapp(
+    payload: TelegramWebAppAuthPayload,
+    db: Annotated[AsyncSession, Depends(get_db)],
+) -> TokenResponse:
+    """Authenticate a user automatically via Telegram Mini App signed initData."""
+    user_data = verify_telegram_webapp_init_data(payload.init_data)
+    if user_data is None:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid Telegram WebApp initData signature or expired auth_date",
+        )
+
+    return await _upsert_telegram_user_and_issue_token(
+        db=db,
+        telegram_id=int(user_data["id"]),
+        first_name=str(user_data.get("first_name") or "Telegram User"),
+        last_name=str(user_data["last_name"]) if user_data.get("last_name") else None,
+        username=str(user_data["username"]) if user_data.get("username") else None,
+        photo_url=str(user_data["photo_url"]) if user_data.get("photo_url") else None,
     )
 
 

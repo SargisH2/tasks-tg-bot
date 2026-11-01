@@ -1,6 +1,11 @@
 """Pydantic schemas package exports."""
 
-from app.schemas.auth import DevAuthPayload, TelegramAuthPayload, TokenResponse
+from app.schemas.auth import (
+    DevAuthPayload,
+    TelegramAuthPayload,
+    TelegramWebAppAuthPayload,
+    TokenResponse,
+)
 from app.schemas.task import (
     CheckpointCreate,
     CheckpointRead,
@@ -29,6 +34,7 @@ __all__ = [
     "TaskRead",
     "TaskUpdate",
     "TelegramAuthPayload",
+    "TelegramWebAppAuthPayload",
     "TokenResponse",
     "UserRead",
     "VoiceCommandResult",

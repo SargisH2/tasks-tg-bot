@@ -1,4 +1,4 @@
-"""Pydantic schemas for Telegram Login Widget and JWT authentication."""
+"""Pydantic schemas for Telegram Login Widget, Telegram Mini App, and JWT authentication."""
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -17,6 +17,12 @@ class TelegramAuthPayload(BaseModel):
     photo_url: str | None = Field(default=None, max_length=512)
     auth_date: int
     hash: str
+
+
+class TelegramWebAppAuthPayload(BaseModel):
+    """Payload containing the raw signed initData string from Telegram WebApp."""
+
+    init_data: str = Field(..., min_length=1)
 
 
 class DevAuthPayload(BaseModel):

@@ -72,6 +72,15 @@ export async function loginWithTelegram(
   });
 }
 
+export async function loginWithTelegramWebApp(
+  initData: string,
+): Promise<TokenResponse> {
+  return requestJson<TokenResponse>("/auth/telegram-webapp", {
+    method: "POST",
+    body: JSON.stringify({ init_data: initData }),
+  });
+}
+
 export async function loginWithDev(
   payload: DevAuthInput,
 ): Promise<TokenResponse> {

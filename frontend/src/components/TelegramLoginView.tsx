@@ -1,9 +1,10 @@
-import { Bot, ShieldCheck, Sparkles, Terminal } from "lucide-react";
+import { Bot, ShieldCheck, Smartphone, Sparkles, Terminal } from "lucide-react";
 import { type FormEvent, useEffect, useRef, useState } from "react";
 import type { DevAuthInput, TelegramWidgetUser } from "../types";
 
 interface TelegramLoginViewProps {
   onTelegramAuth: (user: TelegramWidgetUser) => Promise<void>;
+  onTelegramWebAppAuth: (initData: string) => Promise<void>;
   onDevAuth: (input: DevAuthInput) => Promise<void>;
   errorMessage: string | null;
 }
@@ -16,6 +17,7 @@ declare global {
 
 export function TelegramLoginView({
   onTelegramAuth,
+  onTelegramWebAppAuth,
   onDevAuth,
   errorMessage,
 }: TelegramLoginViewProps) {
@@ -24,6 +26,8 @@ export function TelegramLoginView({
   const [devFirstName, setDevFirstName] = useState<string>("Alice");
   const [devTelegramId, setDevTelegramId] = useState<string>("100001");
   const [isSubmitting, setIsSubmitting] = useState<boolean>(false);
+  const [webAppInitData, setWebAppInitData] = useState<string>("");
+  const [webAppDisplayName, setWebAppDisplayName] = useState<string>("");
 
   const botUsername: string =
     (import.meta.env.VITE_TELEGRAM_BOT_USERNAME as string | undefined) ??
@@ -37,11 +41,17 @@ export function TelegramLoginView({
     if (tgWebApp) {
       tgWebApp.ready();
       tgWebApp.expand();
+      if (tgWebApp.initData && tgWebApp.initData.trim().length > 0) {
+        setWebAppInitData(tgWebApp.initData.trim());
+      }
       const webAppUser = tgWebApp.initDataUnsafe?.user;
       if (webAppUser) {
         setDevTelegramId(String(webAppUser.id));
         if (webAppUser.username) {
           setDevUsername(webAppUser.username);
+          setWebAppDisplayName(`@${webAppUser.username}`);
+        } else if (webAppUser.first_name) {
+          setWebAppDisplayName(webAppUser.first_name);
         }
         if (webAppUser.first_name) {
           setDevFirstName(webAppUser.first_name);
@@ -66,6 +76,7 @@ export function TelegramLoginView({
     script.setAttribute("data-size", "large");
     script.setAttribute("data-radius", "8");
     script.setAttribute("data-onauth", "onTelegramAuthCallback(user)");
+    script.setAttribute("data-auth-url", window.location.origin);
     script.setAttribute("data-request-access", "write");
     container.appendChild(script);
 
@@ -73,6 +84,18 @@ export function TelegramLoginView({
       delete window.onTelegramAuthCallback;
     };
   }, [botUsername, onTelegramAuth]);
+
+  const handleWebAppContinue = async () => {
+    if (!webAppInitData) {
+      return;
+    }
+    setIsSubmitting(true);
+    try {
+      await onTelegramWebAppAuth(webAppInitData);
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
 
   const handleDevSubmit = async (event: FormEvent) => {
     event.preventDefault();
@@ -130,9 +153,30 @@ export function TelegramLoginView({
           </div>
         )}
 
+        {webAppInitData && (
+          <div className="flex flex-col items-center space-y-3 rounded-xl border border-emerald-500/40 bg-emerald-950/20 p-5">
+            <span className="inline-flex items-center gap-1.5 text-xs font-semibold text-emerald-300 uppercase">
+              <Smartphone className="h-4 w-4" />
+              Telegram Mini App Detected
+            </span>
+            <button
+              type="button"
+              disabled={isSubmitting}
+              onClick={() => void handleWebAppContinue()}
+              className="w-full rounded-xl bg-emerald-600 px-4 py-3 text-sm font-semibold text-white shadow-lg shadow-emerald-600/25 transition hover:bg-emerald-500 disabled:opacity-50"
+            >
+              {isSubmitting
+                ? "Signing in..."
+                : `Continue as ${webAppDisplayName || "Telegram User"}`}
+            </button>
+          </div>
+        )}
+
         <div className="flex flex-col items-center space-y-3 rounded-xl border border-slate-800 bg-slate-950 p-5">
           <span className="text-xs font-medium tracking-wider text-slate-400 uppercase">
-            Official Telegram Login Widget
+            {webAppInitData
+              ? "Or Sign In via Browser Widget"
+              : "Official Telegram Login Widget"}
           </span>
           <div ref={widgetContainerRef} className="min-h-[44px]" />
         </div>
