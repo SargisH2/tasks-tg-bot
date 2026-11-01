@@ -1,0 +1,79 @@
+name: CI/CD Pipeline
+
+on:
+  push:
+    branches:
+      - main
+      - master
+  pull_request:
+    branches:
+      - main
+      - master
+
+jobs:
+  quality-and-tests:
+    name: Quality Gate & Automated Tests
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: "pip"
+          cache-dependency-path: backend/requirements.txt
+
+      - name: Install backend dependencies
+        working-directory: backend
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Run Ruff linter
+        working-directory: backend
+        run: ruff check app tests
+
+      - name: Run Ruff formatter check
+        working-directory: backend
+        run: ruff format --check app tests
+
+      - name: Run Mypy strict type checker
+        working-directory: backend
+        run: mypy app tests
+
+      - name: Run Pytest with 80% coverage gate
+        working-directory: backend
+        run: pytest --cov=app --cov-report=term-missing --cov-fail-under=80
+
+      - name: Set up Node.js 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Install frontend dependencies and build
+        working-directory: frontend
+        run: |
+          npm ci || npm install
+          npm run build
+
+  deploy:
+    name: Deploy to OVH Production VPS
+    needs: quality-and-tests
+    if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master')
+    runs-on: ubuntu-latest
+    steps:
+      - name: Deploy via SSH to OVH Instance
+        uses: appleboy/ssh-action@v1.2.5
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          username: ${{ secrets.VPS_USER }}
+          key: ${{ secrets.VPS_SSH_KEY }}
+          script_stop: true
+          script: |
+            cd /home/ubuntu/taskmanager
+            git fetch origin
+            git reset --hard origin/main
+            docker compose -f docker-compose.prod.yml up --build -d --remove-orphans
+            docker image prune -f

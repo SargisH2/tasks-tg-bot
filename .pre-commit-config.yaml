@@ -1,0 +1,27 @@
+repos:
+  - repo: local
+    hooks:
+      - id: ruff-check
+        name: ruff check
+        entry: bash -c 'cd backend && ../.venv/bin/ruff check --fix app tests'
+        language: system
+        types: [python]
+        pass_filenames: false
+      - id: ruff-format
+        name: ruff format
+        entry: bash -c 'cd backend && ../.venv/bin/ruff format app tests'
+        language: system
+        types: [python]
+        pass_filenames: false
+      - id: mypy
+        name: mypy strict typecheck
+        entry: bash -c 'cd backend && ../.venv/bin/mypy app tests'
+        language: system
+        types: [python]
+        pass_filenames: false
+      - id: pytest
+        name: pytest with 80 percent coverage gate
+        entry: bash -c 'cd backend && ../.venv/bin/pytest --cov=app --cov-report=term-missing --cov-fail-under=80'
+        language: system
+        types: [python]
+        pass_filenames: false
