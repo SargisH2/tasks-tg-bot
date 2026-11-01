@@ -15,7 +15,12 @@ import {
   Trash2,
   Users,
 } from "lucide-react";
-import { useState } from "react";
+import {
+  useState,
+  type MouseEvent as ReactMouseEvent,
+  type PointerEvent as ReactPointerEvent,
+  type TouchEvent as ReactTouchEvent,
+} from "react";
 import type { Task, TaskPriority, TaskUpdateInput, User } from "../types";
 import { CheckpointList } from "./CheckpointList";
 import { MentionInput } from "./MentionInput";
@@ -168,13 +173,57 @@ export function TaskCard({
     setIsEditing(false);
   };
 
+  const isDragHandleTarget = (target: EventTarget | null): boolean => {
+    if (!(target instanceof Element)) {
+      return false;
+    }
+    return target.closest("[data-drag-handle='true']") !== null;
+  };
+
+  const isMobileOrTouch = (pointerType?: string): boolean => {
+    if (pointerType && pointerType !== "mouse") {
+      return true;
+    }
+    if (typeof window !== "undefined") {
+      return window.matchMedia("(max-width: 768px), (pointer: coarse)").matches;
+    }
+    return false;
+  };
+
+  const handlePointerDown = (event: ReactPointerEvent<HTMLDivElement>) => {
+    if (
+      isMobileOrTouch(event.pointerType) &&
+      !isDragHandleTarget(event.target)
+    ) {
+      return;
+    }
+    listeners?.onPointerDown?.(event);
+  };
+
+  const handleTouchStart = (event: ReactTouchEvent<HTMLDivElement>) => {
+    if (!isDragHandleTarget(event.target)) {
+      return;
+    }
+    listeners?.onTouchStart?.(event);
+  };
+
+  const handleMouseDown = (event: ReactMouseEvent<HTMLDivElement>) => {
+    if (isMobileOrTouch() && !isDragHandleTarget(event.target)) {
+      return;
+    }
+    listeners?.onMouseDown?.(event);
+  };
+
   return (
     <div
       ref={setNodeRef}
       style={style}
       {...attributes}
       {...listeners}
-      className={`cursor-grab rounded-xl border bg-slate-900/95 p-3.5 shadow-lg transition select-none active:cursor-grabbing ${
+      onPointerDown={handlePointerDown}
+      onTouchStart={handleTouchStart}
+      onMouseDown={handleMouseDown}
+      className={`rounded-xl border bg-slate-900/95 p-3.5 shadow-lg transition select-none md:cursor-grab md:active:cursor-grabbing ${
         isDragging
           ? "z-40 border-indigo-500 opacity-40 ring-2 ring-indigo-500/40"
           : "border-slate-800 hover:border-slate-700"
@@ -283,12 +332,14 @@ export function TaskCard({
               <Trash2 className="h-3.5 w-3.5" />
             </button>
           )}
-          <span
+          <button
+            type="button"
+            data-drag-handle="true"
             title="Drag card to move column"
-            className="touch-none rounded p-1 text-slate-400 hover:bg-slate-800 hover:text-white"
+            className="cursor-grab touch-none rounded p-1.5 text-slate-400 hover:bg-slate-800 hover:text-white active:cursor-grabbing sm:p-1"
           >
             <GripVertical className="h-4 w-4" />
-          </span>
+          </button>
         </div>
       </div>
 
