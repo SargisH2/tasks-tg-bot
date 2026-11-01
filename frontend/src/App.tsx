@@ -298,11 +298,41 @@ export function App() {
   ) => {
     setErrorBanner(null);
     const snapshot = [...tasks];
-    setTasks((prev) =>
-      prev.map((t) =>
-        t.id === taskId ? { ...t, status: newStatus, position: newPosition } : t,
-      ),
-    );
+    setTasks((prev) => {
+      const target = prev.find((t) => t.id === taskId);
+      if (!target) {
+        return prev;
+      }
+      const otherTasks = prev.filter((t) => t.id !== taskId);
+      const destColumnTasks = otherTasks
+        .filter((t) => t.status === newStatus)
+        .sort((a, b) => a.position - b.position);
+      const clampedPos = Math.max(
+        0,
+        Math.min(newPosition, destColumnTasks.length),
+      );
+      destColumnTasks.splice(clampedPos, 0, {
+        ...target,
+        status: newStatus,
+        position: clampedPos,
+      });
+      const reindexedDestIds = new Map(
+        destColumnTasks.map((t, idx) => [t.id, idx]),
+      );
+      return prev.map((t) => {
+        if (t.id === taskId) {
+          return {
+            ...t,
+            status: newStatus,
+            position: reindexedDestIds.get(t.id) ?? clampedPos,
+          };
+        }
+        if (t.status === newStatus && reindexedDestIds.has(t.id)) {
+          return { ...t, position: reindexedDestIds.get(t.id) ?? t.position };
+        }
+        return t;
+      });
+    });
     try {
       const updated = await updateTask(taskId, {
         status: newStatus,

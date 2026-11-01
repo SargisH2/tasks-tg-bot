@@ -1,13 +1,20 @@
 import {
+  type CollisionDetection,
   closestCorners,
   DndContext,
   type DragEndEvent,
+  DragOverlay,
+  type DragStartEvent,
   KeyboardSensor,
   PointerSensor,
+  pointerWithin,
+  rectIntersection,
+  TouchSensor,
   useSensor,
   useSensors,
 } from "@dnd-kit/core";
 import { sortableKeyboardCoordinates } from "@dnd-kit/sortable";
+import { useState } from "react";
 import type { Task, TaskStatus, TaskUpdateInput, User } from "../types";
 import { KanbanColumn } from "./KanbanColumn";
 
@@ -58,6 +65,24 @@ const COLUMNS: Array<{
 
 const VALID_STATUSES: TaskStatus[] = ["PENDING", "IN_PROGRESS", "COMPLETED"];
 
+const collisionDetectionStrategy: CollisionDetection = (args) => {
+  const pointerCollisions = pointerWithin(args);
+  if (pointerCollisions.length > 0) {
+    const taskCollision = pointerCollisions.find(
+      (c) => !VALID_STATUSES.includes(String(c.id) as TaskStatus),
+    );
+    if (taskCollision) {
+      return [taskCollision];
+    }
+    return pointerCollisions;
+  }
+  const rectCollisions = rectIntersection(args);
+  if (rectCollisions.length > 0) {
+    return rectCollisions;
+  }
+  return closestCorners(args);
+};
+
 export function KanbanBoard({
   tasks,
   currentUser,
@@ -72,16 +97,27 @@ export function KanbanBoard({
   onToggleCheckpoint,
   onDeleteCheckpoint,
 }: KanbanBoardProps) {
+  const [activeTask, setActiveTask] = useState<Task | null>(null);
+
   const sensors = useSensors(
     useSensor(PointerSensor, {
       activationConstraint: { distance: 6 },
+    }),
+    useSensor(TouchSensor, {
+      activationConstraint: { delay: 150, tolerance: 5 },
     }),
     useSensor(KeyboardSensor, {
       coordinateGetter: sortableKeyboardCoordinates,
     }),
   );
 
+  const handleDragStart = (event: DragStartEvent) => {
+    const found = tasks.find((t) => t.id === String(event.active.id)) ?? null;
+    setActiveTask(found);
+  };
+
   const handleDragEnd = (event: DragEndEvent) => {
+    setActiveTask(null);
     const { active, over } = event;
     if (!over) {
       return;
@@ -100,23 +136,33 @@ export function KanbanBoard({
 
     if (VALID_STATUSES.includes(overId as TaskStatus)) {
       destinationStatus = overId as TaskStatus;
-      const columnTasks = tasks.filter((t) => t.status === destinationStatus);
+      const columnTasks = tasks.filter(
+        (t) => t.status === destinationStatus && t.id !== activeTaskId,
+      );
       destinationPosition = columnTasks.length;
     } else {
       const overTask = tasks.find((t) => t.id === overId);
-      if (overTask) {
-        destinationStatus = overTask.status;
-        const columnTasks = tasks
-          .filter((t) => t.status === destinationStatus)
-          .sort((a, b) => a.position - b.position);
-        const targetIndex = columnTasks.findIndex((t) => t.id === overTask.id);
-        destinationPosition = targetIndex >= 0 ? targetIndex : 0;
+      if (!overTask) {
+        return;
+      }
+      destinationStatus = overTask.status;
+      const columnTasks = tasks
+        .filter((t) => t.status === destinationStatus)
+        .sort((a, b) => a.position - b.position);
+      const targetIndex = columnTasks.findIndex((t) => t.id === overTask.id);
+      destinationPosition = targetIndex >= 0 ? targetIndex : 0;
+
+      if (
+        destinationStatus === draggedTask.status &&
+        overTask.id === draggedTask.id
+      ) {
+        return;
       }
     }
 
     if (
       destinationStatus === draggedTask.status &&
-      destinationPosition === draggedTask.position
+      VALID_STATUSES.includes(overId as TaskStatus)
     ) {
       return;
     }
@@ -127,7 +173,9 @@ export function KanbanBoard({
   return (
     <DndContext
       sensors={sensors}
-      collisionDetection={closestCorners}
+      collisionDetection={collisionDetectionStrategy}
+      onDragStart={handleDragStart}
+      onDragCancel={() => setActiveTask(null)}
       onDragEnd={handleDragEnd}
     >
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
@@ -157,6 +205,24 @@ export function KanbanBoard({
           );
         })}
       </div>
+
+      <DragOverlay>
+        {activeTask ? (
+          <div className="w-full max-w-sm rotate-1 rounded-xl border-2 border-indigo-500 bg-slate-900/95 p-3.5 shadow-2xl">
+            <div className="mb-1.5 flex items-center justify-between gap-2 text-[11px] font-semibold text-indigo-300">
+              <span>
+                {activeTask.visibility === "PUBLIC"
+                  ? "🌐 Public"
+                  : "🔒 Private"}
+              </span>
+              <span>Moving card...</span>
+            </div>
+            <h3 className="truncate text-sm font-semibold text-white">
+              {activeTask.title}
+            </h3>
+          </div>
+        ) : null}
+      </DragOverlay>
     </DndContext>
   );
 }
